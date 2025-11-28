@@ -190,9 +190,11 @@ export default function App() {
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPosRef = useRef<{x: number, y: number} | null>(null);
   const isLongPressTriggeredRef = useRef(false);
+  const isScrollingRef = useRef(false);
 
   const handleTouchStart = (e: React.TouchEvent | React.MouseEvent, memberId: string, taskId: string) => {
     isLongPressTriggeredRef.current = false;
+    isScrollingRef.current = false;
     const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
     
@@ -209,7 +211,7 @@ export default function App() {
             details: currentState.details
         });
         if (navigator.vibrate) navigator.vibrate(50);
-    }, 600);
+    }, 600); // 600ms for long press
   };
 
   const handleTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
@@ -220,18 +222,31 @@ export default function App() {
     const moveX = Math.abs(clientX - touchStartPosRef.current.x);
     const moveY = Math.abs(clientY - touchStartPosRef.current.y);
 
-    if (moveX > 10 || moveY > 10) {
+    // Increased threshold to 20px to be more forgiving for taps
+    if (moveX > 20 || moveY > 20) {
+        isScrollingRef.current = true;
         if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
         touchStartPosRef.current = null;
     }
   };
 
-  const handleTouchEnd = (e: React.MouseEvent | React.TouchEvent, memberId: string, taskId: string) => {
+  const handleTouchEnd = () => {
+    // Only clear the timer. We use onClick for the toggle now.
     if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-    if (!isLongPressTriggeredRef.current && touchStartPosRef.current) {
-        toggleFixedTask(memberId, taskId);
-    }
     touchStartPosRef.current = null;
+  };
+
+  const handleClick = (e: React.MouseEvent, memberId: string, taskId: string) => {
+      // If long press triggered the modal, do NOT toggle
+      if (isLongPressTriggeredRef.current) {
+          isLongPressTriggeredRef.current = false;
+          return;
+      }
+      // If scrolling happened, do NOT toggle (standard behavior, but good to be explicit)
+      if (isScrollingRef.current) {
+          return;
+      }
+      toggleFixedTask(memberId, taskId);
   };
 
   const saveTaskEdit = () => {
@@ -435,12 +450,13 @@ export default function App() {
                             return (
                                 <div
                                     key={task.id}
+                                    onClick={(e) => handleClick(e, memberId, task.id)}
                                     onMouseDown={(e) => handleTouchStart(e, memberId, task.id)}
                                     onMouseMove={handleTouchMove}
-                                    onMouseUp={(e) => handleTouchEnd(e, memberId, task.id)}
+                                    onMouseUp={handleTouchEnd}
                                     onTouchStart={(e) => handleTouchStart(e, memberId, task.id)}
                                     onTouchMove={handleTouchMove}
-                                    onTouchEnd={(e) => handleTouchEnd(e, memberId, task.id)}
+                                    onTouchEnd={handleTouchEnd}
                                     onContextMenu={(e) => e.preventDefault()}
                                     className={`
                                         w-full rounded-2xl p-4 flex items-center justify-between shadow-sm border 
