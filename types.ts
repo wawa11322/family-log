@@ -18,6 +18,8 @@ export type TaskDefinitions = Record<string, Task[]>;
 export interface TaskLog {
   completed: boolean;
   details: string;
+  // Stores the name of the task at the moment of completion to preserve history
+  recordedTitle?: string;
 }
 
 export interface DailyLogData {

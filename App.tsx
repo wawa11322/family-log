@@ -111,7 +111,6 @@ export default function App() {
       if (isDarkMode) {
           root.classList.add('dark');
           localStorage.setItem(THEME_KEY, 'dark');
-          // Update meta theme-color for mobile browsers
           document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#030712');
           body.style.backgroundColor = '#030712';
       } else {
@@ -175,12 +174,16 @@ export default function App() {
 
   const toggleFixedTask = (memberId: string, taskId: string) => {
     const currentState = getTaskState(memberId, taskId);
+    const currentTaskDef = config.tasks[memberId]?.find(t => t.id === taskId);
+    
     updateMemberData(memberId, {
       fixedTasks: {
         ...getMemberData(memberId).fixedTasks,
         [taskId]: {
           ...currentState,
-          completed: !currentState.completed
+          completed: !currentState.completed,
+          // Save the title at this moment. If unchecking, we keep the existing recorded title or save it now.
+          recordedTitle: !currentState.completed ? currentTaskDef?.title : currentState.recordedTitle
         }
       }
     });
@@ -253,6 +256,7 @@ export default function App() {
     if (!editingTask) return;
     const { memberId, id, title, details } = editingTask;
 
+    // Update Global Config (Affects rendering of the list itself)
     setConfig(prev => ({
         ...prev,
         tasks: {
@@ -261,13 +265,16 @@ export default function App() {
         }
     }));
 
+    // Update TODAY'S data record to match the new edit immediately
     const currentState = getTaskState(memberId, id);
     updateMemberData(memberId, {
       fixedTasks: {
         ...getMemberData(memberId).fixedTasks,
         [id]: {
           ...currentState,
-          details
+          details,
+          // Also update the recorded title for today so it matches what they just typed
+          recordedTitle: title
         }
       }
     });
@@ -447,6 +454,10 @@ export default function App() {
                     <div className="space-y-3">
                         {mTasks.map(task => {
                             const state = getTaskState(memberId, task.id);
+                            // Logic: Use Recorded Title if it exists AND the task is completed (preserving history).
+                            // Fallback to current config title (task.title).
+                            const displayTitle = (state.completed && state.recordedTitle) ? state.recordedTitle : task.title;
+
                             return (
                                 <div
                                     key={task.id}
@@ -478,7 +489,7 @@ export default function App() {
                                         </div>
                                         <div className="flex flex-col items-start min-w-0">
                                             <div className="flex items-center gap-2 font-bold text-lg leading-tight break-words text-gray-700 dark:text-gray-200">
-                                                <span>{task.title}</span>
+                                                <span>{displayTitle}</span>
                                             </div>
                                             {state.details && (
                                                 <div className="text-xs text-indigo-500 dark:text-indigo-400 font-medium text-left mt-1 break-all">
@@ -654,42 +665,71 @@ export default function App() {
         <h2 className="text-2xl font-bold text-gray-800 dark:text-white">同步與設定</h2>
         
         <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-800 space-y-6">
-            <div>
-                <h3 className="font-bold text-lg mb-2 flex items-center gap-2 text-gray-800 dark:text-gray-200">
-                    <Download className="w-5 h-5 text-indigo-500"/> 匯出資料 (備份)
-                </h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                    點擊按鈕複製您的所有資料代碼。您可以將此代碼貼到另一台裝置上進行同步。
-                </p>
+            
+            {/* Theme Toggle */}
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-full ${isDarkMode ? 'bg-gray-700 text-yellow-300' : 'bg-orange-100 text-orange-500'}`}>
+                        {isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+                    </div>
+                    <div>
+                        <h3 className="font-bold text-gray-800 dark:text-white">外觀主題</h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">{isDarkMode ? '深色模式' : '淺色模式'}</p>
+                    </div>
+                </div>
                 <button 
-                    onClick={handleExport}
-                    className="w-full py-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 rounded-xl font-bold text-sm hover:bg-indigo-100 dark:hover:bg-indigo-900/50 flex items-center justify-center gap-2"
+                    onClick={() => setIsDarkMode(!isDarkMode)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isDarkMode ? 'bg-indigo-600' : 'bg-gray-200'}`}
                 >
-                    <Copy className="w-4 h-4" /> 複製資料代碼
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${isDarkMode ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
             </div>
 
-            <div className="border-t border-gray-100 dark:border-gray-800 pt-6">
-                <h3 className="font-bold text-lg mb-2 flex items-center gap-2 text-gray-800 dark:text-gray-200">
-                    <Upload className="w-5 h-5 text-teal-500"/> 匯入資料 (還原)
+            <div className="h-px bg-gray-100 dark:bg-gray-800" />
+
+            {/* Export */}
+            <div className="space-y-3">
+                <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                    <Download className="w-4 h-4" /> 備份與同步
                 </h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                    在此貼上來自其他裝置的資料代碼。<strong>注意：這將覆蓋當前資料。</strong>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                    點擊複製下方的代碼，發送給家人，他們貼上後即可同步看到一樣的畫面。
                 </p>
+                <button 
+                    onClick={handleExport}
+                    className="w-full bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 py-3 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                    <Copy className="w-4 h-4" /> 複製完整資料代碼
+                </button>
+            </div>
+
+            <div className="h-px bg-gray-100 dark:bg-gray-800" />
+
+            {/* Import */}
+            <div className="space-y-3">
+                <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                    <Upload className="w-4 h-4" /> 匯入資料
+                </h3>
                 <textarea 
+                    className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none resize-none text-gray-800 dark:text-gray-200"
+                    rows={3}
+                    placeholder="在此貼上收到的代碼..."
                     value={importCode}
                     onChange={(e) => setImportCode(e.target.value)}
-                    placeholder="貼上資料代碼..."
-                    className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 text-xs font-mono h-24 mb-3 focus:ring-2 focus:ring-teal-500/20 outline-none text-gray-800 dark:text-gray-200"
                 />
                 <button 
                     onClick={handleImport}
-                    className={`w-full py-3 rounded-xl font-bold text-sm text-white flex items-center justify-center gap-2 transition-colors
-                        ${importStatus === 'success' ? 'bg-green-500' : importStatus === 'error' ? 'bg-red-500' : 'bg-gray-800 dark:bg-gray-700 hover:bg-gray-900 dark:hover:bg-gray-600'}
+                    disabled={!importCode}
+                    className={`
+                        w-full py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2
+                        ${importStatus === 'success' ? 'bg-green-500 text-white' : 
+                          importStatus === 'error' ? 'bg-red-500 text-white' :
+                          'bg-gray-900 dark:bg-gray-700 text-white hover:bg-gray-800 dark:hover:bg-gray-600'}
+                        disabled:opacity-50 disabled:cursor-not-allowed
                     `}
                 >
-                    {importStatus === 'success' ? <CheckCircle2 className="w-4 h-4"/> : null}
-                    {importStatus === 'success' ? '匯入成功！' : importStatus === 'error' ? '格式錯誤' : '開始匯入'}
+                    {importStatus === 'success' ? <CheckCircle2 className="w-4 h-4" /> : null}
+                    {importStatus === 'success' ? '匯入成功' : importStatus === 'error' ? '格式錯誤' : '確認匯入'}
                 </button>
             </div>
         </div>
@@ -697,171 +737,170 @@ export default function App() {
   );
 
   return (
-    <div className={`min-h-screen pb-20 font-sans select-none transition-colors duration-300 ${isDarkMode ? 'bg-gray-950 text-gray-100' : 'bg-yellow-50 text-gray-800'}`}>
-      
-      {/* --- Sticky Header --- */}
-      <div className={`sticky top-0 z-20 backdrop-blur-md shadow-sm border-b transition-colors duration-300 ${isDarkMode ? 'bg-gray-900/90 border-gray-800' : 'bg-white/90 border-gray-100'}`}>
-        <div className="max-w-md mx-auto px-6 py-4">
-            <div className="flex justify-between items-center mb-2">
-                <div>
-                    <h1 className="text-3xl font-extrabold tracking-tight font-[Noto Sans TC] text-gray-900 dark:text-white">FamilyLog</h1>
-                    <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 font-medium text-sm">
-                        {currentView === 'daily' ? (
-                            <>
-                            <button onClick={() => handleDateChange(-1)} className="hover:text-gray-900 dark:hover:text-gray-200 p-1"><ChevronLeft className="w-5 h-5"/></button>
-                            <span className="min-w-[100px] text-center">{currentDate.toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric', weekday: 'short' })}</span>
-                            <button onClick={() => handleDateChange(1)} className="hover:text-gray-900 dark:hover:text-gray-200 p-1"><ChevronRight className="w-5 h-5"/></button>
-                            </>
-                        ) : currentView === 'calendar' ? (
-                            <span>月曆總覽</span>
-                        ) : (
-                            <span>設定</span>
-                        )}
-                    </div>
-                </div>
-                <div className="flex gap-2">
-                     <button 
-                        onClick={() => setIsDarkMode(!isDarkMode)}
-                        className={`p-2.5 rounded-full transition-colors ${isDarkMode ? 'bg-gray-800 text-yellow-400 hover:bg-gray-700' : 'bg-amber-100 text-amber-500 hover:bg-amber-200'}`}
-                    >
-                        {isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
-                    </button>
-                     <button 
-                        onClick={() => setCurrentView(v => v === 'settings' ? 'daily' : 'settings')}
-                        className={`p-2.5 rounded-full transition-colors ${currentView === 'settings' ? 'bg-gray-200 dark:bg-gray-700' : 'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                    >
-                        <Settings className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-                    </button>
-                    <button 
-                        onClick={() => setCurrentView(v => v === 'calendar' ? 'daily' : 'calendar')}
-                        className={`p-2.5 rounded-full transition-colors ${currentView === 'calendar' ? 'bg-gray-200 dark:bg-gray-700' : 'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                    >
-                        <CalendarIcon className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-                    </button>
-                    {currentView === 'daily' && (
-                        <button 
-                            onClick={handleGenerateSummary}
-                            disabled={isGenerating}
-                            className="p-2.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-full transition-colors relative"
-                        >
-                            {isGenerating ? <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"/> : <Sparkles className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />}
-                        </button>
-                    )}
-                </div>
-            </div>
-            
-            {/* Family Progress (Only in Daily View) */}
-            {currentView === 'daily' && (
-                <div className="mt-4">
-                    <div className="flex justify-between items-end mb-1">
-                        <span className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">全家進度</span>
-                        <span className="font-bold text-indigo-600 dark:text-indigo-400">{familyProgress}%</span>
-                    </div>
-                    <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
-                        <div 
-                            className="h-full bg-gradient-to-r from-cyan-400 to-indigo-500 transition-all duration-500 ease-out"
-                            style={{ width: `${familyProgress}%` }}
-                        />
-                    </div>
-                </div>
-            )}
+    <div className="min-h-screen bg-amber-50/50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 font-sans pb-24 transition-colors duration-300">
+      {/* Header */}
+      <header className="sticky top-0 z-20 bg-amber-50/95 dark:bg-gray-950/95 backdrop-blur-md px-6 py-4 border-b border-gray-200/50 dark:border-gray-800/50 flex justify-between items-center">
+        <div>
+           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm font-medium mb-0.5">
+             <CalendarIcon className="w-4 h-4" />
+             <span>{currentDate.toLocaleDateString('zh-TW', { month: 'long', day: 'numeric', weekday: 'long' })}</span>
+           </div>
+           <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400">
+             {currentView === 'calendar' ? '打卡月曆' : currentView === 'settings' ? '設定' : 'FamilyLog'}
+           </h1>
         </div>
-      </div>
+        {currentView === 'daily' && (
+            <button 
+              onClick={handleGenerateSummary}
+              disabled={isGenerating}
+              className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg shadow-indigo-200 dark:shadow-none transition-all active:scale-95 flex items-center gap-2 disabled:opacity-70"
+            >
+              {isGenerating ? <div className="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full" /> : <Sparkles className="w-4 h-4" />}
+              <span>AI 日報</span>
+            </button>
+        )}
+      </header>
 
+      {/* Main Content */}
       {currentView === 'daily' && renderDailyView()}
       {currentView === 'calendar' && renderCalendarView()}
       {currentView === 'settings' && renderSettingsView()}
 
-      {/* --- Task Edit Modal --- */}
-      {editingTask && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-gray-900 rounded-3xl w-full max-w-sm shadow-2xl p-6 space-y-5 border border-transparent dark:border-gray-800">
-            <div className="flex justify-between items-center pb-2">
-              <h3 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                <Edit3 className="w-5 h-5 text-indigo-500" />
-                編輯項目
-              </h3>
-              <button onClick={() => setEditingTask(null)} className="p-2 bg-gray-100 dark:bg-gray-800 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-                <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
-                  項目名稱 (修改後會永久變更)
-                </label>
-                <input 
-                  type="text" 
-                  value={editingTask.title}
-                  onChange={(e) => setEditingTask(prev => prev ? { ...prev, title: e.target.value } : null)}
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-lg font-medium text-gray-800 dark:text-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
-                  今日詳細備註
-                </label>
-                <textarea 
-                  rows={3}
-                  value={editingTask.details}
-                  onChange={(e) => setEditingTask(prev => prev ? { ...prev, details: e.target.value } : null)}
-                  placeholder="例如：讀了第5章、練了哈農..."
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none resize-none text-gray-800 dark:text-white"
-                />
-              </div>
-            </div>
+      {/* Tab Bar */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-gray-900/90 backdrop-blur-lg border-t border-gray-200 dark:border-gray-800 px-6 py-3 pb-safe z-30">
+        <div className="max-w-md mx-auto flex justify-around items-center">
+            <button 
+                onClick={() => setCurrentView('daily')}
+                className={`flex flex-col items-center gap-1 transition-colors ${currentView === 'daily' ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400 dark:text-gray-600'}`}
+            >
+                <div className={`p-1.5 rounded-xl ${currentView === 'daily' ? 'bg-indigo-50 dark:bg-indigo-900/30' : ''}`}>
+                    <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <span className="text-[10px] font-medium">今日打卡</span>
+            </button>
+            
+            <button 
+                onClick={() => setCurrentView('calendar')}
+                className={`flex flex-col items-center gap-1 transition-colors ${currentView === 'calendar' ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400 dark:text-gray-600'}`}
+            >
+                <div className={`p-1.5 rounded-xl ${currentView === 'calendar' ? 'bg-indigo-50 dark:bg-indigo-900/30' : ''}`}>
+                    <CalendarIcon className="w-6 h-6" />
+                </div>
+                <span className="text-[10px] font-medium">歷史月曆</span>
+            </button>
 
             <button 
-                onClick={saveTaskEdit}
-                className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold text-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 dark:shadow-none"
+                onClick={() => setCurrentView('settings')}
+                className={`flex flex-col items-center gap-1 transition-colors ${currentView === 'settings' ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-400 dark:text-gray-600'}`}
             >
-                儲存變更
+                <div className={`p-1.5 rounded-xl ${currentView === 'settings' ? 'bg-indigo-50 dark:bg-indigo-900/30' : ''}`}>
+                    <Settings className="w-6 h-6" />
+                </div>
+                <span className="text-[10px] font-medium">設定</span>
             </button>
-          </div>
         </div>
-      )}
+      </div>
 
-      {/* --- Member Name Edit Modal --- */}
-      {editingMemberName && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-gray-900 rounded-3xl w-full max-w-sm shadow-2xl p-6 space-y-5 border border-transparent dark:border-gray-800">
-            <h3 className="text-xl font-bold text-gray-800 dark:text-white">修改名字</h3>
-            <input 
-              type="text" 
-              value={editingMemberName.name}
-              onChange={(e) => setEditingMemberName(prev => prev ? { ...prev, name: e.target.value } : null)}
-              className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-lg text-gray-800 dark:text-white"
-            />
-            <div className="flex gap-2">
-                <button onClick={() => setEditingMemberName(null)} className="flex-1 py-3 text-gray-500 dark:text-gray-400 font-bold">取消</button>
-                <button onClick={saveMemberName} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 dark:shadow-none">確定</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- AI Summary Modal --- */}
+      {/* AI Summary Modal */}
       {showSummaryModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-gray-900 rounded-3xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden border border-transparent dark:border-gray-800">
-            <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/50">
-              <h3 className="text-xl font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
-                <Sparkles className="w-5 h-5" /> 家庭日報
-              </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-gray-900 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden max-h-[85vh] flex flex-col">
+            <div className="p-6 bg-gradient-to-br from-indigo-500 to-purple-600 text-white shrink-0">
+               <div className="flex justify-between items-start mb-4">
+                 <h2 className="text-2xl font-bold flex items-center gap-2">
+                   <Sparkles className="w-6 h-6" />
+                   家庭日報
+                 </h2>
+                 <button onClick={() => setShowSummaryModal(false)} className="p-1 hover:bg-white/20 rounded-full transition-colors">
+                   <X className="w-6 h-6" />
+                 </button>
+               </div>
+               <p className="text-indigo-100 text-sm">
+                 {currentDate.toLocaleDateString('zh-TW')} • 由 Gemini AI 為您生成
+               </p>
+            </div>
+            
+            <div className="p-6 overflow-y-auto whitespace-pre-wrap leading-relaxed text-gray-700 dark:text-gray-300 text-base">
+              {aiSummary}
+            </div>
+
+            <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 shrink-0 flex justify-end">
               <button 
                 onClick={() => setShowSummaryModal(false)}
-                className="p-2 bg-gray-200 dark:bg-gray-700 rounded-full hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                className="bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 px-6 py-2.5 rounded-xl font-bold transition-colors"
               >
-                <X className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                關閉
               </button>
-            </div>
-            <div className="p-8 overflow-y-auto whitespace-pre-line leading-loose text-gray-700 dark:text-gray-300 text-lg">
-               {aiSummary}
             </div>
           </div>
         </div>
+      )}
+
+      {/* Task Edit Modal */}
+      {editingTask && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 sm:p-6 bg-black/40 backdrop-blur-sm animate-in fade-in">
+              <div className="bg-white dark:bg-gray-900 w-full max-w-sm rounded-3xl shadow-2xl p-6 space-y-4 animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0 sm:zoom-in-95">
+                  <div className="flex justify-between items-center">
+                      <h3 className="text-lg font-bold text-gray-800 dark:text-white">編輯任務</h3>
+                      <button onClick={() => setEditingTask(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                          <X className="w-5 h-5" />
+                      </button>
+                  </div>
+                  
+                  <div className="space-y-3">
+                      <div>
+                          <label className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5 block">任務名稱</label>
+                          <input 
+                              type="text" 
+                              value={editingTask.title}
+                              onChange={(e) => setEditingTask({ ...editingTask, title: e.target.value })}
+                              className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 font-bold text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                          />
+                          <p className="text-xs text-gray-400 mt-1">
+                              修改名稱會同時更新今天的紀錄，舊紀錄則保留原有名稱。
+                          </p>
+                      </div>
+
+                      <div>
+                          <label className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5 block">今日備註 (選填)</label>
+                          <textarea 
+                              rows={3}
+                              value={editingTask.details}
+                              onChange={(e) => setEditingTask({ ...editingTask, details: e.target.value })}
+                              placeholder="例如：彈了兩首新曲子..."
+                              className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-indigo-500/20 outline-none resize-none"
+                          />
+                      </div>
+                  </div>
+
+                  <button 
+                      onClick={saveTaskEdit}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-indigo-200 dark:shadow-none transition-transform active:scale-95"
+                  >
+                      儲存變更
+                  </button>
+              </div>
+          </div>
+      )}
+
+      {/* Name Edit Modal */}
+      {editingMemberName && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm animate-in fade-in">
+              <div className="bg-white dark:bg-gray-900 w-full max-w-xs rounded-3xl shadow-2xl p-6 space-y-4">
+                  <h3 className="text-lg font-bold text-center text-gray-800 dark:text-white">修改暱稱</h3>
+                  <input 
+                      autoFocus
+                      type="text" 
+                      value={editingMemberName.name}
+                      onChange={(e) => setEditingMemberName({ ...editingMemberName, name: e.target.value })}
+                      className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 font-bold text-center text-xl text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  />
+                  <div className="flex gap-2">
+                      <button onClick={() => setEditingMemberName(null)} className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 py-3 rounded-xl font-bold">取消</button>
+                      <button onClick={saveMemberName} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold">確定</button>
+                  </div>
+              </div>
+          </div>
       )}
     </div>
   );
