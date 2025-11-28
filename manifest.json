@@ -1,0 +1,16 @@
+{
+  "name": "FamilyLog",
+  "short_name": "FamilyLog",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#fefce8",
+  "theme_color": "#fefce8",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512",
+      "purpose": "any maskable"
+    }
+  ]
+}
