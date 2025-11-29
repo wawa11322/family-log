@@ -25,6 +25,7 @@ export const FAMILY_STYLES: Record<string, Omit<FamilyMember, 'id' | 'name'>> = 
 };
 
 export const INITIAL_CONFIG: AppConfig = {
+  appTitle: '人生積木屋',
   members: {
     'child1': { id: 'child1', name: 'Orison', visible: true },
     'child2': { id: 'child2', name: 'Alison', visible: true },

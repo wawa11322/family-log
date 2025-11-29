@@ -46,4 +46,6 @@ export interface MemberConfig {
 export interface AppConfig {
   tasks: Record<string, Task[]>;
   members: Record<string, MemberConfig>;
+  // Custom app title
+  appTitle?: string;
 }
