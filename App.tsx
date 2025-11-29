@@ -15,10 +15,13 @@ import {
   Copy,
   CheckCircle2,
   Moon,
-  Sun
+  Sun,
+  UserPlus,
+  Image as ImageIcon,
+  Palette
 } from 'lucide-react';
-import { FAMILY_STYLES, INITIAL_CONFIG, INITIAL_DAILY_DATA } from './constants';
-import { AppData, DailyLogData, AppConfig, TaskLog } from './types';
+import { INITIAL_CONFIG, INITIAL_DAILY_DATA } from './constants';
+import { AppData, DailyLogData, AppConfig, TaskLog, MemberConfig } from './types';
 import { generateDailySummary } from './services/geminiService';
 
 const STORAGE_KEY = 'family_log_data_v3';
@@ -28,6 +31,75 @@ const THEME_KEY = 'family_log_theme';
 // Helper to format date YYYY-MM-DD
 const formatDate = (date: Date): string => {
   return date.toISOString().split('T')[0];
+};
+
+// Helper to convert file to base64
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = error => reject(error);
+  });
+};
+
+// Helper to calculate Age and Grade
+const calculateAgeAndGrade = (birthDateStr?: string) => {
+    if (!birthDateStr) return '';
+    
+    const today = new Date();
+    const birthDate = new Date(birthDateStr);
+    
+    // 1. Calculate Age (e.g., 9y8m)
+    let m = today.getMonth() - birthDate.getMonth() + (12 * (today.getFullYear() - birthDate.getFullYear()));
+    if (today.getDate() < birthDate.getDate()) {
+        m--;
+    }
+    const years = Math.floor(m / 12);
+    const months = m % 12;
+    const ageStr = `${years}y${months}m`;
+
+    // 2. Calculate Grade (Taiwan School System)
+    // Cutoff: Sept 2 (Students born on Sept 2 enter next cohort)
+    // Standard: A child enters Grade 1 if they are 6 years old before Sept 2 of the academic year.
+    
+    // Determine current Academic Year Start Year
+    // If today is before Sept 1, we are in the previous Academic Year (e.g., May 2024 is part of 2023 academic year)
+    // Actually simpler logic:
+    // Determine the child's "Cohort Year" (Entrace Year for Grade 1).
+    // Born Sept 2, 2017 ~ Sept 1, 2018 => Cohort 2024 (Enters G1 in Sept 2024)
+    
+    // Let's use a simpler offset method based on current academic year.
+    let currentAcademicYear = today.getFullYear();
+    if (today.getMonth() < 8) { // Jan(0) - Aug(7) -> Still in previous academic year context
+        currentAcademicYear -= 1; 
+    }
+
+    // Determine Birth Year for school purposes (Born after Sept 1 counts as next year)
+    let schoolBirthYear = birthDate.getFullYear();
+    if (birthDate.getMonth() > 8 || (birthDate.getMonth() === 8 && birthDate.getDate() >= 2)) {
+        schoolBirthYear += 1;
+    }
+
+    // Grade calculation:
+    // Grade 1 student (approx 6-7yo) in Academic Year 2023 would have schoolBirthYear 2017.
+    // 2023 - 2017 = 6.
+    // Formula: Grade = CurrentAcademicYear - SchoolBirthYear - 5
+    
+    const gradeVal = currentAcademicYear - schoolBirthYear - 5;
+    
+    let gradeStr = '';
+    if (gradeVal >= 13) gradeStr = ''; // University/Adult
+    else if (gradeVal >= 10) gradeStr = `高${gradeVal - 9}`;
+    else if (gradeVal >= 7) gradeStr = `國${gradeVal - 6}`;
+    else if (gradeVal >= 1) gradeStr = `${gradeVal}年級`;
+    else if (gradeVal === 0) gradeStr = '大班';
+    else if (gradeVal === -1) gradeStr = '中班';
+    else if (gradeVal === -2) gradeStr = '小班';
+    else if (gradeVal === -3) gradeStr = '幼幼班';
+    else gradeStr = '';
+
+    return `${ageStr} ${gradeStr}`.trim();
 };
 
 export default function App() {
@@ -57,8 +129,8 @@ export default function App() {
   const [addingCustomTask, setAddingCustomTask] = useState<string | null>(null);
   const [newCustomTaskText, setNewCustomTaskText] = useState('');
 
-  // Member Name Editing
-  const [editingMemberName, setEditingMemberName] = useState<{ id: string, name: string } | null>(null);
+  // Member Config Editing (Name, Subtitle, Style)
+  const [editingMemberConfig, setEditingMemberConfig] = useState<MemberConfig | null>(null);
 
   // App Title Editing
   const [isEditingAppTitle, setIsEditingAppTitle] = useState<boolean>(false);
@@ -91,7 +163,6 @@ export default function App() {
         const parsed = JSON.parse(savedConfig);
         // Robust merge logic
         setConfig(prev => {
-          // If parsed data exists but has no title (from older version), force the default.
           const mergedTitle = parsed.appTitle || prev.appTitle || '人生積木屋';
           return {
             ...prev,
@@ -142,7 +213,8 @@ export default function App() {
           root.classList.remove('dark');
           localStorage.setItem(THEME_KEY, 'light');
           document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#fefce8');
-          body.style.backgroundColor = '#fefce8';
+          // We set body background in inline styles now for global customization
+          body.style.backgroundColor = ''; 
       }
   }, [isDarkMode]);
 
@@ -166,14 +238,19 @@ export default function App() {
     return Object.keys(config.members);
   };
 
-  const getBarColor = (mid: string) => {
-    switch(mid) {
-        case 'child1': return 'bg-cyan-400';
-        case 'child2': return 'bg-orange-400';
-        case 'child3': return 'bg-indigo-400';
-        case 'me': return 'bg-pink-400';
-        default: return 'bg-gray-400';
+  const getMemberStyle = (member: MemberConfig) => {
+    const style: React.CSSProperties = {};
+    if (member.backgroundImage) {
+      style.backgroundImage = `url(${member.backgroundImage})`;
+      style.backgroundSize = 'cover';
+      style.backgroundPosition = 'center';
+    } else if (member.themeColor) {
+      style.backgroundColor = member.themeColor;
+    } else {
+       // Fallback gradient logic if needed, or default color
+       style.background = 'linear-gradient(135deg, #60a5fa, #3b82f6)';
     }
+    return style;
   };
 
   // --- DATA OPERATIONS ---
@@ -307,19 +384,39 @@ export default function App() {
     setEditingTask(null);
   };
 
-  const saveMemberName = () => {
-      if(!editingMemberName) return;
+  const saveMemberConfig = () => {
+      if(!editingMemberConfig) return;
       setConfig(prev => ({
           ...prev,
           members: {
               ...prev.members,
-              [editingMemberName.id]: {
-                  ...prev.members[editingMemberName.id],
-                  name: editingMemberName.name
-              }
+              [editingMemberConfig.id]: editingMemberConfig
           }
       }));
-      setEditingMemberName(null);
+      setEditingMemberConfig(null);
+  };
+
+  const handleMemberImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0] && editingMemberConfig) {
+      try {
+        const base64 = await fileToBase64(e.target.files[0]);
+        setEditingMemberConfig({ ...editingMemberConfig, backgroundImage: base64 });
+      } catch (err) {
+        console.error("Image upload failed", err);
+        alert("圖片上傳失敗");
+      }
+    }
+  };
+
+  const handleGlobalImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      try {
+        const base64 = await fileToBase64(e.target.files[0]);
+        setConfig(prev => ({ ...prev, globalBackgroundImage: base64, globalBackgroundColor: undefined }));
+      } catch (err) {
+        alert("圖片上傳失敗");
+      }
+    }
   };
 
   const saveAppTitle = () => {
@@ -349,6 +446,41 @@ export default function App() {
 
   const handleUpdateMood = (memberId: string, mood: string) => {
     updateMemberData(memberId, { mood });
+  };
+
+  const addNewMember = () => {
+    const newId = `member_${Date.now()}`;
+    const newMember: MemberConfig = {
+      id: newId,
+      name: '新成員',
+      visible: true,
+      themeColor: '#6b7280'
+    };
+
+    setConfig(prev => ({
+      ...prev,
+      members: { ...prev.members, [newId]: newMember },
+      tasks: {
+        ...prev.tasks,
+        [newId]: [
+          { id: 'task1', title: '日常習慣 1' },
+          { id: 'task2', title: '日常習慣 2' },
+          { id: 'task3', title: '閱讀' },
+        ]
+      }
+    }));
+  };
+
+  const deleteMember = (id: string) => {
+    if (window.confirm('確定要刪除這位成員嗎？此動作無法復原。')) {
+      setConfig(prev => {
+        const newMembers = { ...prev.members };
+        delete newMembers[id];
+        // We keep tasks definition to avoid complex cleanup or in case of undo features later, 
+        // but removing from members map is enough to hide it.
+        return { ...prev, members: newMembers };
+      });
+    }
   };
 
   const handleGenerateSummary = async () => {
@@ -433,13 +565,23 @@ export default function App() {
     return Math.round((completed / mDefs.length) * 100);
   };
 
+  // --- GLOBAL STYLE ---
+  const appContainerStyle: React.CSSProperties = {
+     backgroundColor: !isDarkMode ? (config.globalBackgroundColor || '#fefce8') : undefined,
+     backgroundImage: (!isDarkMode && config.globalBackgroundImage) ? `url(${config.globalBackgroundImage})` : undefined,
+     backgroundSize: 'cover',
+     backgroundPosition: 'center',
+     backgroundAttachment: 'fixed',
+     minHeight: '100vh',
+     paddingBottom: '6rem'
+  };
+
   // --- RENDER VIEWS ---
 
   const renderDailyView = () => (
       <main className="max-w-md mx-auto px-4 py-6 space-y-10">
         {getSortedMemberIds().map(memberId => {
             const memberConfig = config.members[memberId];
-            const memberStyle = FAMILY_STYLES[memberId] || FAMILY_STYLES['child1'];
             const progress = getMemberProgress(memberId);
             const mTasks = config.tasks[memberId] || [];
             const mData = getMemberData(memberId);
@@ -448,39 +590,49 @@ export default function App() {
                 return s === true || (typeof s === 'object' && s.completed);
             }).length;
 
+            const displaySubtitle = memberConfig.subtitle || calculateAgeAndGrade(memberConfig.birthDate);
+
             return (
                 <div key={memberId} className="space-y-4">
                     {/* Member Header Card */}
-                    <div className={`
-                        relative overflow-hidden rounded-3xl p-6 text-white shadow-lg ${memberStyle.shadowColor} dark:shadow-none
-                        bg-gradient-to-br ${memberStyle.gradient} transition-transform
-                    `}>
+                    <div 
+                        className="relative overflow-hidden rounded-3xl p-6 text-white shadow-lg transition-transform"
+                        style={getMemberStyle(memberConfig)}
+                    >
+                        {/* Overlay for better text readability if image is used */}
+                        {memberConfig.backgroundImage && <div className="absolute inset-0 bg-black/40 z-0" />}
+
                         <div className="flex justify-between items-center relative z-10">
                             <div>
-                                <div className="flex items-center gap-2 mb-1">
-                                    <h2 className="text-3xl font-bold">{memberConfig.name}</h2>
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                    <h2 className="text-3xl font-bold shadow-black/10 drop-shadow-sm">{memberConfig.name}</h2>
+                                    {displaySubtitle && (
+                                        <span className="text-sm font-medium bg-white/20 px-2 py-0.5 rounded-full backdrop-blur-sm">
+                                            {displaySubtitle}
+                                        </span>
+                                    )}
                                     <button 
-                                        onClick={() => setEditingMemberName({ id: memberId, name: memberConfig.name })}
-                                        className="p-1.5 bg-white/20 rounded-full hover:bg-white/40 transition-colors"
+                                        onClick={() => setEditingMemberConfig({ ...memberConfig })}
+                                        className="p-1.5 bg-white/20 rounded-full hover:bg-white/40 transition-colors backdrop-blur-sm"
                                     >
                                         <Edit3 className="w-4 h-4 text-white" />
                                     </button>
                                 </div>
-                                <p className="text-white/90 font-medium text-sm">{completedCount} / {mTasks.length} 完成</p>
+                                <p className="text-white/90 font-medium text-sm drop-shadow-sm">{completedCount} / {mTasks.length} 完成</p>
                             </div>
                             
                             {/* Circular Progress */}
                             <div className="relative w-16 h-16 flex items-center justify-center">
                                 <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
                                     <path className="text-white/30" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" />
-                                    <path className="text-white transition-all duration-1000 ease-out" strokeDasharray={`${progress}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+                                    <path className="text-white transition-all duration-1000 ease-out drop-shadow-md" strokeDasharray={`${progress}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
                                 </svg>
-                                <span className="absolute text-sm font-bold">{progress}%</span>
+                                <span className="absolute text-sm font-bold drop-shadow-md">{progress}%</span>
                             </div>
                         </div>
 
                         <div className="mt-5 bg-white/30 h-1.5 rounded-full overflow-hidden">
-                             <div className="h-full bg-white transition-all duration-500" style={{ width: `${progress}%` }}></div>
+                             <div className="h-full bg-white transition-all duration-500 shadow-sm" style={{ width: `${progress}%` }}></div>
                         </div>
                     </div>
 
@@ -488,8 +640,6 @@ export default function App() {
                     <div className="space-y-3">
                         {mTasks.map(task => {
                             const state = getTaskState(memberId, task.id);
-                            // Logic: Use Recorded Title if it exists AND the task is completed (preserving history).
-                            // Fallback to current config title (task.title).
                             const displayTitle = (state.completed && state.recordedTitle) ? state.recordedTitle : task.title;
 
                             return (
@@ -505,10 +655,10 @@ export default function App() {
                                     onContextMenu={(e) => e.preventDefault()}
                                     className={`
                                         w-full rounded-2xl p-4 flex items-center justify-between shadow-sm border 
-                                        transition-all cursor-pointer select-none
+                                        transition-all cursor-pointer select-none backdrop-blur-sm
                                         ${state.completed 
-                                            ? 'bg-indigo-50/30 border-indigo-100 dark:bg-indigo-900/20 dark:border-indigo-800' 
-                                            : 'bg-white border-gray-100 dark:bg-gray-900 dark:border-gray-800'}
+                                            ? 'bg-indigo-50/80 border-indigo-100 dark:bg-indigo-900/60 dark:border-indigo-800' 
+                                            : 'bg-white/80 border-gray-100 dark:bg-gray-900/80 dark:border-gray-800'}
                                         active:scale-[0.98]
                                     `}
                                 >
@@ -538,7 +688,7 @@ export default function App() {
                     </div>
 
                     {/* Extras */}
-                    <div className="bg-white dark:bg-gray-900 rounded-2xl p-1 shadow-sm border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
+                    <div className="bg-white/80 backdrop-blur-sm dark:bg-gray-900/80 rounded-2xl p-1 shadow-sm border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
                         {/* Custom Tasks */}
                         <div className="p-4">
                             <div className="flex items-center justify-between mb-3">
@@ -608,7 +758,7 @@ export default function App() {
     return (
         <div className="max-w-md mx-auto px-4 py-6">
             <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-white">歷史紀錄</h2>
-            <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-800">
+            <div className="bg-white/80 backdrop-blur-sm dark:bg-gray-900/80 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-800">
                 <div className="flex justify-between items-center mb-6">
                     <button onClick={() => {
                         const d = new Date(currentDate);
@@ -665,14 +815,14 @@ export default function App() {
                                 <div className="flex items-end justify-center gap-[2px] h-4 w-full px-1">
                                     {getSortedMemberIds().map(mid => {
                                         const p = getMemberProgress(mid, dStr);
-                                        const barColor = getBarColor(mid);
+                                        const color = config.members[mid]?.themeColor || '#9ca3af';
                                         const height = p > 0 ? `${Math.max(p, 15)}%` : '0%';
                                         
                                         return (
                                             <div 
                                                 key={mid} 
-                                                className={`w-1.5 rounded-t-sm ${p > 0 ? barColor : (hasData ? 'bg-gray-100 dark:bg-gray-800' : 'bg-transparent')}`}
-                                                style={{ height: height }}
+                                                className={`w-1.5 rounded-t-sm ${p > 0 ? '' : (hasData ? 'bg-gray-100 dark:bg-gray-800' : 'bg-transparent')}`}
+                                                style={{ height: height, backgroundColor: p > 0 ? color : undefined }}
                                             />
                                         );
                                     })}
@@ -682,14 +832,6 @@ export default function App() {
                     })}
                 </div>
             </div>
-            <div className="mt-4 flex flex-wrap gap-3 justify-center">
-                 {getSortedMemberIds().map(mid => (
-                     <div key={mid} className="flex items-center gap-1.5">
-                         <div className={`w-3 h-3 rounded-full ${getBarColor(mid)}`} />
-                         <span className="text-xs text-gray-500 dark:text-gray-400">{config.members[mid].name}</span>
-                     </div>
-                 ))}
-            </div>
         </div>
     );
   };
@@ -698,18 +840,19 @@ export default function App() {
       <div className="max-w-md mx-auto px-4 py-6 space-y-6">
         <h2 className="text-2xl font-bold text-gray-800 dark:text-white">同步與設定</h2>
         
-        <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-800 space-y-6">
+        {/* Global Theme */}
+        <div className="bg-white/80 backdrop-blur-sm dark:bg-gray-900/80 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-800 space-y-4">
+             <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                <Palette className="w-4 h-4" /> 全域外觀
+            </h3>
             
-            {/* Theme Toggle */}
+            {/* Dark Mode Toggle */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <div className={`p-2 rounded-full ${isDarkMode ? 'bg-gray-700 text-yellow-300' : 'bg-orange-100 text-orange-500'}`}>
                         {isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
                     </div>
-                    <div>
-                        <h3 className="font-bold text-gray-800 dark:text-white">外觀主題</h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{isDarkMode ? '深色模式' : '淺色模式'}</p>
-                    </div>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">深色模式</span>
                 </div>
                 <button 
                     onClick={() => setIsDarkMode(!isDarkMode)}
@@ -719,8 +862,92 @@ export default function App() {
                 </button>
             </div>
 
-            <div className="h-px bg-gray-100 dark:bg-gray-800" />
+            {/* Background Settings */}
+            <div className="space-y-3">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block">App 背景顏色/圖片</label>
+                <div className="flex gap-2">
+                    <input 
+                        type="color" 
+                        value={config.globalBackgroundColor || '#fefce8'}
+                        onChange={(e) => setConfig(prev => ({ ...prev, globalBackgroundColor: e.target.value, globalBackgroundImage: undefined }))}
+                        className="h-10 w-14 p-1 rounded cursor-pointer"
+                        disabled={isDarkMode}
+                    />
+                     <label className={`flex-1 flex items-center justify-center gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors ${isDarkMode ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                        <ImageIcon className="w-4 h-4 text-gray-500" />
+                        <span className="text-sm text-gray-600 dark:text-gray-300">上傳背景圖片</span>
+                        <input 
+                            type="file" 
+                            accept="image/*" 
+                            className="hidden" 
+                            onChange={handleGlobalImageUpload}
+                            disabled={isDarkMode}
+                        />
+                    </label>
+                </div>
+                {config.globalBackgroundImage && !isDarkMode && (
+                    <div className="relative w-full h-20 rounded-lg overflow-hidden border border-gray-200">
+                        <img src={config.globalBackgroundImage} alt="Background" className="w-full h-full object-cover" />
+                        <button 
+                            onClick={() => setConfig(prev => ({ ...prev, globalBackgroundImage: undefined }))}
+                            className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1"
+                        >
+                            <X className="w-3 h-3" />
+                        </button>
+                    </div>
+                )}
+                {isDarkMode && <p className="text-xs text-gray-400">深色模式下背景設定暫時停用</p>}
+            </div>
+        </div>
 
+        {/* Member Management */}
+        <div className="bg-white/80 backdrop-blur-sm dark:bg-gray-900/80 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-800 space-y-4">
+             <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                <UserPlus className="w-4 h-4" /> 成員管理
+            </h3>
+            
+            <div className="space-y-2">
+                {getSortedMemberIds().map(mid => {
+                    const mem = config.members[mid];
+                    const subtitle = mem.subtitle || calculateAgeAndGrade(mem.birthDate);
+                    return (
+                        <div key={mid} className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                             <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full" style={getMemberStyle(mem)} />
+                                <div>
+                                    <div className="font-bold text-gray-800 dark:text-gray-200">{mem.name}</div>
+                                    <div className="text-xs text-gray-500">{subtitle || '無備註'}</div>
+                                </div>
+                             </div>
+                             <div className="flex gap-2">
+                                 <button 
+                                    onClick={() => setEditingMemberConfig({...mem})}
+                                    className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-gray-600 dark:text-gray-300"
+                                 >
+                                     <Edit3 className="w-4 h-4" />
+                                 </button>
+                                 <button 
+                                    onClick={() => deleteMember(mid)}
+                                    className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg text-red-500"
+                                 >
+                                     <Trash2 className="w-4 h-4" />
+                                 </button>
+                             </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            <button 
+                onClick={addNewMember}
+                className="w-full bg-indigo-100 dark:bg-indigo-900/30 hover:bg-indigo-200 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 py-3 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+            >
+                <Plus className="w-4 h-4" /> 新增家庭成員
+            </button>
+        </div>
+        
+        <div className="bg-white/80 backdrop-blur-sm dark:bg-gray-900/80 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-800 space-y-6">
+            
             {/* Export */}
             <div className="space-y-3">
                 <h3 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
@@ -771,9 +998,9 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen bg-amber-50/50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 font-sans pb-24 transition-colors duration-300">
+    <div style={appContainerStyle} className="text-gray-900 dark:text-gray-100 font-sans transition-all duration-300">
       {/* Header */}
-      <header className="sticky top-0 z-20 bg-amber-50/95 dark:bg-gray-950/95 backdrop-blur-md px-6 py-4 border-b border-gray-200/50 dark:border-gray-800/50 flex justify-between items-center">
+      <header className="sticky top-0 z-20 bg-white/80 dark:bg-gray-950/80 backdrop-blur-md px-6 py-4 border-b border-gray-200/50 dark:border-gray-800/50 flex justify-between items-center">
         <div>
            <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm font-medium mb-0.5">
              <CalendarIcon className="w-4 h-4" />
@@ -933,21 +1160,91 @@ export default function App() {
           </div>
       )}
 
-      {/* Name Edit Modal */}
-      {editingMemberName && (
+      {/* Member Configuration Edit Modal */}
+      {editingMemberConfig && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm animate-in fade-in">
-              <div className="bg-white dark:bg-gray-900 w-full max-w-xs rounded-3xl shadow-2xl p-6 space-y-4">
-                  <h3 className="text-lg font-bold text-center text-gray-800 dark:text-white">修改暱稱</h3>
-                  <input 
-                      autoFocus
-                      type="text" 
-                      value={editingMemberName.name}
-                      onChange={(e) => setEditingMemberName({ ...editingMemberName, name: e.target.value })}
-                      className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 font-bold text-center text-xl text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                  />
-                  <div className="flex gap-2">
-                      <button onClick={() => setEditingMemberName(null)} className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 py-3 rounded-xl font-bold">取消</button>
-                      <button onClick={saveMemberName} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold">確定</button>
+              <div className="bg-white dark:bg-gray-900 w-full max-w-sm rounded-3xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+                  <h3 className="text-lg font-bold text-center text-gray-800 dark:text-white">成員設定</h3>
+                  
+                  <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5 block">暱稱</label>
+                        <input 
+                            type="text" 
+                            value={editingMemberConfig.name}
+                            onChange={(e) => setEditingMemberConfig({ ...editingMemberConfig, name: e.target.value })}
+                            className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2 font-bold text-gray-800 dark:text-gray-200 outline-none"
+                        />
+                    </div>
+                    
+                    <div>
+                        <label className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5 block">
+                            生日 (用來自動計算年級)
+                        </label>
+                        <input 
+                            type="date" 
+                            value={editingMemberConfig.birthDate || ''}
+                            onChange={(e) => setEditingMemberConfig({ ...editingMemberConfig, birthDate: e.target.value })}
+                            className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2 text-sm text-gray-800 dark:text-gray-200 outline-none"
+                        />
+                         <p className="text-[10px] text-gray-400 mt-1">
+                             系統會根據 9/2 入學分界點自動計算大班、一年級等。
+                         </p>
+                    </div>
+
+                    <div>
+                        <label className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5 block">
+                            手動顯示文字 (選填)
+                        </label>
+                        <input 
+                            type="text" 
+                            value={editingMemberConfig.subtitle || ''}
+                            onChange={(e) => setEditingMemberConfig({ ...editingMemberConfig, subtitle: e.target.value })}
+                            placeholder="例如：永遠的 18 歲"
+                            className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2 text-sm text-gray-800 dark:text-gray-200 outline-none"
+                        />
+                        <p className="text-[10px] text-gray-400 mt-1">
+                             若填寫此欄位，將優先顯示此文字，而不顯示自動計算的年齡。
+                        </p>
+                    </div>
+
+                    <div>
+                        <label className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5 block">卡片背景</label>
+                        <div className="flex gap-2 items-center">
+                             <input 
+                                type="color" 
+                                value={editingMemberConfig.themeColor || '#60a5fa'}
+                                onChange={(e) => setEditingMemberConfig({ ...editingMemberConfig, themeColor: e.target.value, backgroundImage: undefined })}
+                                className="h-10 w-14 p-1 rounded cursor-pointer"
+                            />
+                            <label className="flex-1 flex items-center justify-center gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                                <ImageIcon className="w-4 h-4 text-gray-500" />
+                                <span className="text-sm text-gray-600 dark:text-gray-300">上傳圖片</span>
+                                <input 
+                                    type="file" 
+                                    accept="image/*" 
+                                    className="hidden" 
+                                    onChange={handleMemberImageUpload}
+                                />
+                            </label>
+                        </div>
+                        {editingMemberConfig.backgroundImage && (
+                            <div className="mt-2 relative w-full h-24 rounded-xl overflow-hidden border border-gray-200">
+                                <img src={editingMemberConfig.backgroundImage} alt="Preview" className="w-full h-full object-cover" />
+                                <button 
+                                    onClick={() => setEditingMemberConfig({ ...editingMemberConfig, backgroundImage: undefined })}
+                                    className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1"
+                                >
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-2">
+                      <button onClick={() => setEditingMemberConfig(null)} className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 py-3 rounded-xl font-bold">取消</button>
+                      <button onClick={saveMemberConfig} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold">儲存</button>
                   </div>
               </div>
           </div>

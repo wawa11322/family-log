@@ -1,36 +1,49 @@
-import { FamilyMember, AppConfig } from './types';
+import { AppConfig } from './types';
 
-// Base definitions for styles (Hardcoded styles, but names are now dynamic)
-export const FAMILY_STYLES: Record<string, Omit<FamilyMember, 'id' | 'name'>> = {
-  'child1': { 
-    role: 'child', 
-    gradient: 'from-cyan-400 to-blue-400',
-    shadowColor: 'shadow-blue-200'
-  },
-  'child2': { 
-    role: 'child', 
-    gradient: 'from-orange-300 to-red-300',
-    shadowColor: 'shadow-orange-200'
-  },
-  'child3': { 
-    role: 'child', 
-    gradient: 'from-purple-300 to-indigo-300',
-    shadowColor: 'shadow-purple-200'
-  },
-  'me': { 
-    role: 'parent', 
-    gradient: 'from-pink-400 to-rose-400',
-    shadowColor: 'shadow-pink-200'
-  },
+// Helper to calculate a rough birthdate for initial data
+// This ensures the demo data looks correct regardless of when the user first opens the app
+const getPastDate = (years: number, months: number) => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - years);
+  d.setMonth(d.getMonth() - months);
+  return d.toISOString().split('T')[0];
 };
 
 export const INITIAL_CONFIG: AppConfig = {
   appTitle: '人生積木屋',
+  globalBackgroundColor: '#fffbeb', // amber-50 equivalent
   members: {
-    'child1': { id: 'child1', name: 'Orison', visible: true },
-    'child2': { id: 'child2', name: 'Alison', visible: true },
-    'child3': { id: 'child3', name: 'Bobie', visible: true },
-    'me': { id: 'me', name: 'Mama', visible: true },
+    'child1': { 
+      id: 'child1', 
+      name: 'Orison', 
+      // Approx 9y8m -> Grade 4
+      birthDate: getPastDate(9, 8),
+      visible: true,
+      themeColor: '#22d3ee', // cyan-400
+    },
+    'child2': { 
+      id: 'child2', 
+      name: 'Alison', 
+      // Approx 7y2m -> Grade 2 (adjusted to ensure grade calculation falls into Grade 2)
+      birthDate: getPastDate(7, 2),
+      visible: true,
+      themeColor: '#fb923c', // orange-400
+    },
+    'child3': { 
+      id: 'child3', 
+      name: 'Bobie', 
+      // Approx 5y -> Kindergarten (Da-Ban)
+      birthDate: getPastDate(5, 6),
+      visible: true,
+      themeColor: '#818cf8', // indigo-400
+    },
+    'me': { 
+      id: 'me', 
+      name: 'Mama', 
+      subtitle: '永遠的 18 歲', // Manual override example
+      visible: true,
+      themeColor: '#f472b6', // pink-400
+    },
   },
   tasks: {
     'child1': [

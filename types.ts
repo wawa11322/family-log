@@ -2,15 +2,14 @@ export interface FamilyMember {
   id: string;
   name: string;
   role: 'parent' | 'child';
-  // We will store tailwind class strings for gradients
-  gradient: string; 
-  shadowColor: string;
+  // Deprecated in favor of MemberConfig styles, kept for legacy type safety if needed
+  gradient?: string; 
+  shadowColor?: string;
 }
 
 export interface Task {
   id: string;
   title: string;
-  // Icon removed as per request
 }
 
 export type TaskDefinitions = Record<string, Task[]>;
@@ -40,7 +39,12 @@ export interface AppData {
 export interface MemberConfig {
   id: string;
   name: string;
+  birthDate?: string; // YYYY-MM-DD
+  subtitle?: string; // Manual override (e.g. "Forever 18")
   visible: boolean;
+  themeColor?: string; // Hex color for card background
+  backgroundImage?: string; // Base64 image string
+  textColor?: string; // Text color to ensure contrast
 }
 
 export interface AppConfig {
@@ -48,4 +52,7 @@ export interface AppConfig {
   members: Record<string, MemberConfig>;
   // Custom app title
   appTitle?: string;
+  // Global customization
+  globalBackgroundColor?: string;
+  globalBackgroundImage?: string; // Base64 image string
 }
