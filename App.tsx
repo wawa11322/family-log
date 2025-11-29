@@ -35,6 +35,7 @@ export default function App() {
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [data, setData] = useState<AppData>({});
   const [config, setConfig] = useState<AppConfig>(INITIAL_CONFIG);
+  const [isLoaded, setIsLoaded] = useState<boolean>(false);
   
   // Views: 'daily' | 'calendar' | 'settings'
   const [currentView, setCurrentView] = useState<'daily' | 'calendar' | 'settings'>('daily');
@@ -59,12 +60,20 @@ export default function App() {
   // Member Name Editing
   const [editingMemberName, setEditingMemberName] = useState<{ id: string, name: string } | null>(null);
 
+  // App Title Editing
+  const [isEditingAppTitle, setIsEditingAppTitle] = useState<boolean>(false);
+  const [tempAppTitle, setTempAppTitle] = useState<string>('');
+
   // Sync State
   const [importCode, setImportCode] = useState('');
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   // --- PERSISTENCE ---
   useEffect(() => {
+    // 1. Set initial title immediately
+    document.title = INITIAL_CONFIG.appTitle || '人生積木屋';
+
+    // 2. Load Data
     const savedData = localStorage.getItem(STORAGE_KEY);
     const savedConfig = localStorage.getItem(CONFIG_KEY);
     const savedTheme = localStorage.getItem(THEME_KEY);
@@ -80,10 +89,18 @@ export default function App() {
     if (savedConfig) {
       try {
         const parsed = JSON.parse(savedConfig);
-        setConfig(prev => ({
-            members: { ...prev.members, ...parsed.members },
-            tasks: { ...prev.tasks, ...parsed.tasks }
-        }));
+        // Robust merge logic
+        setConfig(prev => {
+          // If parsed data exists but has no title (from older version), force the default.
+          const mergedTitle = parsed.appTitle || prev.appTitle || '人生積木屋';
+          return {
+            ...prev,
+            ...parsed,
+            members: { ...prev.members, ...(parsed.members || {}) },
+            tasks: { ...prev.tasks, ...(parsed.tasks || {}) },
+            appTitle: mergedTitle
+          };
+        });
       } catch (e) {
         console.error("Failed to parse saved config", e);
       }
@@ -92,17 +109,25 @@ export default function App() {
     if (savedTheme === 'dark') {
         setIsDarkMode(true);
     }
+    
+    // Mark as loaded so we can start saving
+    setIsLoaded(true);
   }, []);
 
   useEffect(() => {
-    if (Object.keys(data).length > 0) {
+    if (isLoaded && Object.keys(data).length > 0) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     }
-  }, [data]);
+  }, [data, isLoaded]);
 
   useEffect(() => {
-    localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
-  }, [config]);
+    if (isLoaded) {
+      localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+      if (config.appTitle) {
+        document.title = config.appTitle;
+      }
+    }
+  }, [config, isLoaded]);
 
   // Theme Effect
   useEffect(() => {
@@ -295,6 +320,15 @@ export default function App() {
           }
       }));
       setEditingMemberName(null);
+  };
+
+  const saveAppTitle = () => {
+    if (!tempAppTitle.trim()) return;
+    setConfig(prev => ({
+      ...prev,
+      appTitle: tempAppTitle
+    }));
+    setIsEditingAppTitle(false);
   };
 
   const handleAddCustomTask = (memberId: string) => {
@@ -745,9 +779,25 @@ export default function App() {
              <CalendarIcon className="w-4 h-4" />
              <span>{currentDate.toLocaleDateString('zh-TW', { month: 'long', day: 'numeric', weekday: 'long' })}</span>
            </div>
-           <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400">
-             {currentView === 'calendar' ? '打卡月曆' : currentView === 'settings' ? '設定' : 'FamilyLog'}
-           </h1>
+           
+           {currentView === 'daily' ? (
+                <button 
+                    onClick={() => {
+                        setTempAppTitle(config.appTitle || '人生積木屋');
+                        setIsEditingAppTitle(true);
+                    }} 
+                    className="group flex items-center gap-2"
+                >
+                    <span className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 text-left">
+                        {config.appTitle || '人生積木屋'}
+                    </span>
+                    <Edit3 className="w-5 h-5 text-gray-300 dark:text-gray-600 group-hover:text-gray-500 dark:group-hover:text-gray-400 transition-colors" />
+                </button>
+           ) : (
+                <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400">
+                    {currentView === 'calendar' ? '打卡月曆' : '設定'}
+                </h1>
+           )}
         </div>
         {currentView === 'daily' && (
             <button 
@@ -898,6 +948,27 @@ export default function App() {
                   <div className="flex gap-2">
                       <button onClick={() => setEditingMemberName(null)} className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 py-3 rounded-xl font-bold">取消</button>
                       <button onClick={saveMemberName} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold">確定</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* App Title Edit Modal */}
+      {isEditingAppTitle && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm animate-in fade-in">
+              <div className="bg-white dark:bg-gray-900 w-full max-w-xs rounded-3xl shadow-2xl p-6 space-y-4">
+                  <h3 className="text-lg font-bold text-center text-gray-800 dark:text-white">App 名稱設定</h3>
+                  <input 
+                      autoFocus
+                      type="text" 
+                      value={tempAppTitle}
+                      onChange={(e) => setTempAppTitle(e.target.value)}
+                      placeholder="例如：人生積木屋"
+                      className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 font-bold text-center text-xl text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  />
+                  <div className="flex gap-2">
+                      <button onClick={() => setIsEditingAppTitle(false)} className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 py-3 rounded-xl font-bold">取消</button>
+                      <button onClick={saveAppTitle} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold">確定</button>
                   </div>
               </div>
           </div>
